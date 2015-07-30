@@ -12,6 +12,8 @@ parser.add_argument('m', metavar = 'm', type = int, help='forcing wavenumber in 
 parser.add_argument('eps', metavar = 'eps', type = float, help='epsilon, the ratio of buoyancy frequency in troposphere and stratosphere') 
 args = parser.parse_args() 
 
+
+
 import logging
 root = logging.root
 for h in root.handlers:
@@ -21,10 +23,10 @@ logger = logging.getLogger(__name__)
 
 
 Lx, Lz = (1000000, 10000) # domain size in meters 
-nx, nz = (64, 108)  # number of points in each direction
+nx, nz = (64, 144)  # number of points in each direction
 
 # parameters (some of these should be set via command line args) 
-stop_time = 5000. # simulation stop time  (seconds)
+stop_time = 20000. # simulation stop time  (seconds)
 pulse_len = 100. # seconds of forcing 
 N1 = 0.01 # buoyancy frequency in the troposphere (1/s) 
 eps = args.eps # ratio of N1/N2
@@ -32,6 +34,9 @@ N2 = N1/eps  # buoyancy frequency in the stratosphere
 m = args.m # vertical mode number
 k = args.k # horizontal mode number
 model_top = 4. * Lz # lid height
+
+sim_name = 'k'+ str(k) +'m' + str(m) 
+print('simulation name is', sim_name)  
 
 print('effective forcing horizontal wavelength is' , 2.*Lx/k/1000., 'kilometers')
 print('effective forcing vertical wavelength is' , 2.*Lz/m/1000., 'kilometers')
@@ -135,7 +140,7 @@ cfl.add_velocities(('u','w'))
 
 # analysis
 # fields to record 
-analysis = solver.evaluator.add_file_handler('analysis_tasks', sim_dt=20, max_writes=300)
+analysis = solver.evaluator.add_file_handler(sim_name, sim_dt=20, max_writes=300)
 analysis.add_task('B', name = 'buoyancy' )
 analysis.add_task('w', name = 'vertical velocity')
 analysis.add_task('u', name = 'horizontal velocity')
@@ -171,8 +176,23 @@ finally:
     logger.info('Iterations: %i' %solver.iteration)
 
 # save a plot or two 
+filepath = sim_name + "/" + sim_name + "_s1/" + sim_name + "_s1_p0.h5"
+print(filepath) 
 
-data = h5py.File("analysis_tasks/analysis_tasks_s1/analysis_tasks_s1_p0.h5", "r")
+# document simulation parameters 
+filename = filepath + 'simulation_params' 
+f = open(filename, 'w')
+ln1 = 'epsilon: ' + str(eps) + '\n'
+ln2 = 'Lx: ' + str(Lx) + ' km\n' 
+ln3 = 'Lz: ' + str(Lz) + ' km\n' 
+ln4 = 'k = ' + str(k) + '; m = ' + str(m) + '\n'
+lines = ln1 + ln2 + ln3 + ln4 
+f.write(lines)  
+f.close() 
+
+# save a plot or two 
+data = h5py.File(filepath, "r")
+#data = h5py.File("analysis_tasks/analysis_tasks_s1/analysis_tasks_s1_p0.h5", "r")
 pe = data['tasks']['pe profile'][:]
 ke = data['tasks']['ke profile'][:]
 te = data['tasks']['total e profile'][:] # computed as 2x PE
@@ -188,18 +208,38 @@ mt = data['tasks']['mask test'][:]
 tropenerg = data['tasks']['tropo energy'][:]
 data.close() 
 
-tau = Lx*np.pi*m**2/(Lz*eps*N1*k) 
-plt.plot(t, tropenerg[:,0,0]/max(tropenerg[:,0,0]))
-plt.plot(t, np.exp(-(t-pulse_len)/tau))
+tau = Lx*np.pi*m**2/(2.*Lz*eps*N1*k) 
+plt.plot(t, tropenerg[:,0,0]/max(tropenerg[:,0,0]),lw =2, label = 'simulation')
+plt.plot(t, np.exp(-(t-pulse_len)/tau), lw = 2, label = 'theory')
 plt.title('Energy' )
-plt.savefig('energytest.pdf') 
+plt.legend() 
+figpath = sim_name + "/energytest.pdf"
+plt.savefig(figpath) 
 
 plt.pcolormesh(t,z, pe[:,0,:].T)
 plt.colorbar()
 plt.title('potential energy' )
-plt.savefig('petest.pdf') 
+figpath = sim_name + "/petest.pdf"
+plt.savefig(figpath) 
+plt.clf() 
 
-#plt.pcolormesh(x,z, ww[2,:,:].T)
-#plt.colorbar()
-#plt.title('w' )
-#plt.savefig('wtest.pdf') 
+plt.pcolormesh(t,z, ke[:,0,:].T)
+plt.colorbar()
+plt.title('kinetic energy' )
+figpath = sim_name + "/ketest.pdf"
+plt.savefig(figpath) 
+plt.clf() 
+
+plt.pcolormesh(x,z, ww[-1,:,:].T)
+plt.colorbar()
+plt.title('w' )
+figpath = sim_name + "/wtest.pdf"
+plt.savefig(figpath) 
+plt.clf() 
+
+plt.pcolormesh(x,z, bb[-1,:,:].T)
+plt.colorbar()
+plt.title('b' )
+figpath = sim_name + "/btest.pdf"
+plt.savefig(figpath) 
+plt.clf() 

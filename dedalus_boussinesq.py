@@ -6,6 +6,7 @@ from dedalus.extras import flow_tools
 import time
 import argparse 
 
+plt.rcParams['image.cmap'] = 'RdBu_r'
 
 parser = argparse.ArgumentParser(description='simulate a Boussinesq pulse')
 parser.add_argument('k', metavar = 'k', type = int, help='forcing wavenumber in the horizontal')
@@ -93,8 +94,8 @@ problem.parameters['mask'] = mask
 def forcing(solver):
     # if using dealiasing, it's important to apply the forcing on the dealiased doman (xd,zd)
     if solver.sim_time < pulse_len:
-        f = 0.001*np.sin(np.pi*zd/Lz)*np.exp(-16.*(xd*xd)/((lambda_x)**2)) #pulse  with "effective wavelength" lambda_x
-        #f = 0.001*np.sin(m * np.pi*zd/Lz)*np.cos(k* np.pi* xd /Lx) # sine wave
+        #f = 0.001*np.sin(np.pi*zd/Lz)*np.exp(-16.*(xd*xd)/((lambda_x)**2)) #pulse  with "effective wavelength" lambda_x
+        f = 0.001*np.sin(m * np.pi*zd/Lz)*np.cos(k* np.pi* xd /Lx) # sine wave
         strat = np.where(zd>Lz)
         f[:,strat] = 0.
     else:

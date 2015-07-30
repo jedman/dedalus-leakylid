@@ -6,11 +6,21 @@ from dedalus.extras import flow_tools
 import time
 import argparse 
 
+
 parser = argparse.ArgumentParser(description='simulate a Boussinesq pulse')
 parser.add_argument('k', metavar = 'k', type = int, help='forcing wavenumber in the horizontal')
 parser.add_argument('m', metavar = 'm', type = int, help='forcing wavenumber in the vertical')
 parser.add_argument('eps', metavar = 'eps', type = float, help='epsilon, the ratio of buoyancy frequency in troposphere and stratosphere') 
+parser.add_argument('-hstat', metavar = 'hstat', type = bool, help ='use hydrostatic solver') 
 args = parser.parse_args() 
+
+
+HYDROSTATIC = args.hstat
+
+if HYDROSTATIC == True:
+     print('using hydrostatic boussinesq solver') 
+else:
+     print('using non-hydrostatic boussinesq solver') 
 
 
 
@@ -20,7 +30,6 @@ for h in root.handlers:
     h.setLevel("INFO")
     
 logger = logging.getLogger(__name__)
-
 
 Lx, Lz = (1000000, 10000) # domain size in meters 
 nx, nz = (64, 144)  # number of points in each direction
@@ -33,7 +42,7 @@ eps = args.eps # ratio of N1/N2
 N2 = N1/eps  # buoyancy frequency in the stratosphere
 m = args.m # vertical mode number
 k = args.k # horizontal mode number
-model_top = 4. * Lz # lid height
+model_top = 8. * Lz # lid height
 
 sim_name = 'k'+ str(k) +'m' + str(m) 
 print('simulation name is', sim_name)  
@@ -41,6 +50,9 @@ print('simulation name is', sim_name)
 print('effective forcing horizontal wavelength is' , 2.*Lx/k/1000., 'kilometers')
 print('effective forcing vertical wavelength is' , 2.*Lz/m/1000., 'kilometers')
 print('stratification ratio N1/N2 is' , N1/N2 )
+
+
+lambda_x = 2.*Lx/k # for defining width of pulse 
 
 
 # Create bases and domain
@@ -81,8 +93,8 @@ problem.parameters['mask'] = mask
 def forcing(solver):
     # if using dealiasing, it's important to apply the forcing on the dealiased doman (xd,zd)
     if solver.sim_time < pulse_len:
-        #f = 0.001*np.sin(np.pi*z/Lz)*np.exp(-(x*x)/((10000)**2)) #pulse
-        f = 0.001*np.sin(m * np.pi*zd/Lz)*np.cos(k* np.pi* xd /Lx) # sine wave
+        f = 0.001*np.sin(np.pi*zd/Lz)*np.exp(-16.*(xd*xd)/((lambda_x)**2)) #pulse  with "effective wavelength" lambda_x
+        #f = 0.001*np.sin(m * np.pi*zd/Lz)*np.cos(k* np.pi* xd /Lx) # sine wave
         strat = np.where(zd>Lz)
         f[:,strat] = 0.
     else:
@@ -104,7 +116,10 @@ problem.parameters['forcing_func'] = forcing_func
 problem.add_equation("dt(u) + 1/rho*dx(p) = 0")
 problem.add_equation("dt(B) + Nsq*w  = forcing_func")
 problem.add_equation("dx(u) + dz(w) = 0")
-problem.add_equation("B - 1/rho*dz(p) = 0")
+if HYDROSTATIC == True:
+	problem.add_equation("B - 1/rho*dz(p) = 0")
+else:
+	problem.add_equation("B - 1/rho*dz(p) - dt(w) = 0")
 
 # fourier direction has periodic bc, chebyshev has a lid
 problem.add_bc("left(w) = 0") # refers to the first end point in chebyshev direction
@@ -154,7 +169,7 @@ analysis.add_task("integ(B,'x')", name = 'b profile')
 # 1d fields
 analysis.add_task('mask')
 analysis.add_task("integ(B * mask,'x')", name = 'mask test')
-analysis.add_task("integ(0.5 * mask *(u*u + w*w +  B*B/Nsq ))", name = 'tropo energy')
+analysis.add_task("integ(0.5 * mask *(u*u + w*w +  B*B/Nsq ))", name = 'tropo energy') # use mask to integrate over troposphere only
 analysis.add_task("integ(0.5 * (u*u + w*w +  B*B/Nsq ))", name='total e')
 
 try:
@@ -180,13 +195,17 @@ filepath = sim_name + "/" + sim_name + "_s1/" + sim_name + "_s1_p0.h5"
 print(filepath) 
 
 # document simulation parameters 
-filename = filepath + 'simulation_params' 
+filename = sim_name + '/' + sim_name + 'simulation_params' 
 f = open(filename, 'w')
 ln1 = 'epsilon: ' + str(eps) + '\n'
 ln2 = 'Lx: ' + str(Lx) + ' km\n' 
 ln3 = 'Lz: ' + str(Lz) + ' km\n' 
 ln4 = 'k = ' + str(k) + '; m = ' + str(m) + '\n'
-lines = ln1 + ln2 + ln3 + ln4 
+ln5 = ' The effective forcing horizontal wavelength is ' + str(2.*Lx/k/1000.) + ' kilometers.\n'
+ln6 = ' The effective forcing vertical wavelength is ' + str(2.*Lz/m/1000.) + ' kilometers.\n'
+ln7 = ' The pulse length is ' + str(pulse_len) + ' seconds. \n' 
+ln8 = ' The lid is at' + str(model_top/1000.)  + ' kilometers.\n' 
+lines = ln1 + ln2 + ln3 + ln4 + ln5 + ln6 + ln7 + ln8
 f.write(lines)  
 f.close() 
 
@@ -195,7 +214,7 @@ data = h5py.File(filepath, "r")
 #data = h5py.File("analysis_tasks/analysis_tasks_s1/analysis_tasks_s1_p0.h5", "r")
 pe = data['tasks']['pe profile'][:]
 ke = data['tasks']['ke profile'][:]
-te = data['tasks']['total e profile'][:] # computed as 2x PE
+te = data['tasks']['total e profile'][:] 
 buoy = data['tasks']['b profile'][:]
 te_1 = data['tasks']['total e'][:]
 z = data['scales/z/1.0'][:]
@@ -208,13 +227,22 @@ mt = data['tasks']['mask test'][:]
 tropenerg = data['tasks']['tropo energy'][:]
 data.close() 
 
-tau = Lx*np.pi*m**2/(2.*Lz*eps*N1*k) 
+tau_approx = Lx*np.pi*m**2/(2.*Lz*eps*N1*k) 
+tau_exact = tau_approx + eps * (Lx/Lz) * (2. * (m*np.pi)**2 - 3.)/(12. * N1 * k * np.pi) 
 plt.plot(t, tropenerg[:,0,0]/max(tropenerg[:,0,0]),lw =2, label = 'simulation')
-plt.plot(t, np.exp(-(t-pulse_len)/tau), lw = 2, label = 'theory')
-plt.title('Energy' )
+plt.plot(t, np.exp(-(t-pulse_len)/tau_approx), lw = 2, ls = '--', label = '$\\tau = \\frac{m^2 H}{2N_1 k \\epsilon}$')
+plt.plot(t, np.exp(-(t-pulse_len)/tau_exact), lw = 2, label = 'theory')
+plt.title('Energy in the troposphere' )
 plt.legend() 
 figpath = sim_name + "/energytest.pdf"
 plt.savefig(figpath) 
+
+plt.pcolormesh(t,z, te[:,0,:].T)
+plt.colorbar()
+plt.title('total energy' )
+figpath = sim_name + "/tetest.pdf"
+plt.savefig(figpath) 
+plt.clf() 
 
 plt.pcolormesh(t,z, pe[:,0,:].T)
 plt.colorbar()
@@ -232,14 +260,24 @@ plt.clf()
 
 plt.pcolormesh(x,z, ww[-1,:,:].T)
 plt.colorbar()
-plt.title('w' )
+plt.title('w, 20,000 seconds' )
+plt.xlim(-Lx/2, Lx/2) 
 figpath = sim_name + "/wtest.pdf"
 plt.savefig(figpath) 
 plt.clf() 
 
 plt.pcolormesh(x,z, bb[-1,:,:].T)
 plt.colorbar()
-plt.title('b' )
+plt.xlim(-Lx/2, Lx/2) 
+plt.title('b, 20,000 seconds' )
 figpath = sim_name + "/btest.pdf"
+plt.savefig(figpath) 
+plt.clf() 
+
+plt.pcolormesh(x,z, bb[10,:,:].T)
+plt.colorbar()
+plt.xlim(-Lx/2, Lx/2) 
+plt.title('b, 200 seconds' )
+figpath = sim_name + "/b_pulse.pdf"
 plt.savefig(figpath) 
 plt.clf() 

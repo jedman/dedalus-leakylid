@@ -12,17 +12,27 @@ parser = argparse.ArgumentParser(description='simulate a Boussinesq pulse')
 parser.add_argument('k', metavar = 'k', type = int, help='forcing wavenumber in the horizontal')
 parser.add_argument('m', metavar = 'm', type = int, help='forcing wavenumber in the vertical')
 parser.add_argument('eps', metavar = 'eps', type = float, help='epsilon, the ratio of buoyancy frequency in troposphere and stratosphere') 
-parser.add_argument('-hstat', metavar = 'hstat', type = bool, help ='use hydrostatic solver') 
+parser.add_argument('-nh','--non-hstat', dest='hstat', action='store_false')
+parser.add_argument('-p','--pulse', dest='pulse', action='store_true')
+parser.add_argument('-pl', '--pulse-len', dest = 'pulse_len' , type = float) 
+parser.set_defaults(pulse_len=100) 
+parser.set_defaults(hstat=True)
+parser.set_defaults(pulse=False) 
 args = parser.parse_args() 
 
-
+PULSE = args.pulse
 HYDROSTATIC = args.hstat
+print('pulse_len is ', args.pulse_len) 
 
 if HYDROSTATIC == True:
      print('using hydrostatic boussinesq solver') 
 else:
      print('using non-hydrostatic boussinesq solver') 
 
+if PULSE == True:
+     print('solving for gaussian forcing') 
+else:
+     print('solving for cosine forcing (single k)') 
 
 
 import logging
@@ -32,18 +42,23 @@ for h in root.handlers:
     
 logger = logging.getLogger(__name__)
 
-Lx, Lz = (1000000, 10000) # domain size in meters 
-nx, nz = (64, 144)  # number of points in each direction
+Lx, Lz = (4000000, 10000) # domain size in meters 
+nx, nz = (256, 144)  # number of points in each direction
+#Lx, Lz = (4000000, 10000) # domain size in meters 
+#nx, nz = (4*64, 144)  # number of points in each direction
 
 # parameters (some of these should be set via command line args) 
-stop_time = 20000. # simulation stop time  (seconds)
-pulse_len = 100. # seconds of forcing 
+stop_time = 50000. # simulation stop time  (seconds)
+pulse_len = args.pulse_len # seconds of forcing 
 N1 = 0.01 # buoyancy frequency in the troposphere (1/s) 
 eps = args.eps # ratio of N1/N2
 N2 = N1/eps  # buoyancy frequency in the stratosphere
 m = args.m # vertical mode number
 k = args.k # horizontal mode number
 model_top = 8. * Lz # lid height
+if eps < 0.4:
+    model_top = 4. * Lz # increases resolution near the jump 
+    
 
 sim_name = 'k'+ str(k) +'m' + str(m) 
 print('simulation name is', sim_name)  
@@ -58,6 +73,11 @@ lambda_x = 2.*Lx/k # for defining width of pulse
 
 # Create bases and domain
 x_basis = de.Fourier('x', nx, interval=(-Lx/2., Lx/2.), dealias = 3/2)
+# compound z basis -- better to resolve jump condition?
+#zb1 = de.Chebyshev('z1',int(nz/4), interval=(0, Lz+1000), dealias=3/2)
+#zb2 = de.Chebyshev('z2', nz, interval=(Lz+1000,model_top), dealias = 3/2)
+#z_basis = de.Compound('z',(zb1,zb2), dealias = 3/2)
+#
 z_basis = de.Chebyshev('z', nz, interval= (0, model_top), dealias = 3/2)
 domain = de.Domain([x_basis, z_basis], grid_dtype=np.float64)
 x, z = domain.grids(scales=1)
@@ -90,18 +110,32 @@ problem.parameters['mask'] = mask
 # experimental source term 
 # following Daniel's 12/24/14 explanation in the forums 
 # https://groups.google.com/forum/#!topic/dedalus-users/BqTjYZzqHHw
-
-def forcing(solver):
-    # if using dealiasing, it's important to apply the forcing on the dealiased doman (xd,zd)
-    if solver.sim_time < pulse_len:
-        #f = 0.001*np.sin(np.pi*zd/Lz)*np.exp(-16.*(xd*xd)/((lambda_x)**2)) #pulse  with "effective wavelength" lambda_x
-        f = 0.001*np.sin(m * np.pi*zd/Lz)*np.cos(k* np.pi* xd /Lx) # sine wave
-        strat = np.where(zd>Lz)
-        f[:,strat] = 0.
-    else:
-        f = 0. 
-    return f
-
+if PULSE == True:
+    def forcing(solver):
+        # if using dealiasing, it's important to apply the forcing on the dealiased doman (xd,zd)
+        if solver.sim_time < pulse_len:
+            f = 0.001*np.sin(np.pi*zd/Lz)*np.exp(-16.*(xd*xd)/((lambda_x)**2)) #pulse  with "effective wavelength" lambda_x 
+            strat = np.where(zd>Lz)
+            f[:,strat] = 0.
+            # subtract the horizontal mean at each level so there's no k=0
+            fprof = np.mean(f, axis = 0 )
+            ftmp = np.repeat(fprof, xd.shape[0])
+            fmask = ftmp.reshape(zd.shape[1],xd.shape[0])
+            f = f - fmask.T 
+        else:
+            f = 0. 
+        return f
+else:
+    def forcing(solver):
+        # if using dealiasing, it's important to apply the forcing on the dealiased doman (xd,zd)
+        if solver.sim_time < pulse_len:
+            #f = 0.001*np.sin(np.pi*zd/Lz)*np.exp(-16.*(xd*xd)/((lambda_x)**2)) #pulse  with "effective wavelength" lambda_x
+            f = 0.001*np.sin(m * np.pi*zd/Lz)*np.cos(k* np.pi* xd /Lx) # cosine wave
+            strat = np.where(zd>Lz)
+            f[:,strat] = 0.
+        else:
+            f = 0. 
+        return f
 forcing_func = de.operators.GeneralFunction(domain,'g',forcing, args=[])
 forcing_func.build_metadata() 
 #forcing_func.meta = ncc.meta # just tricking it for now, this metadata is wrong
@@ -149,27 +183,32 @@ solver.stop_wall_time = np.inf
 solver.stop_iteration = np.inf
 
 # CFL conditions
-initial_dt = 0.5*Lz/nz
-cfl = flow_tools.CFL(solver,initial_dt,safety=0.8, max_change=1.5, min_change=0.5, max_dt=200) 
+initial_dt = 0.8*Lz/nz
+cfl = flow_tools.CFL(solver,initial_dt,safety=0.8, max_change=1.5, min_change=0.5, max_dt=400) 
 # too large of a timestep makes things rather diffusive
 cfl.add_velocities(('u','w'))
 
 # analysis
 # fields to record 
-analysis = solver.evaluator.add_file_handler(sim_name, sim_dt=20, max_writes=300)
+analysis = solver.evaluator.add_file_handler(sim_name, sim_dt=50, max_writes=300)
 analysis.add_task('B', name = 'buoyancy' )
 analysis.add_task('w', name = 'vertical velocity')
 analysis.add_task('u', name = 'horizontal velocity')
 analysis.add_task('p', name = 'pressure')
 analysis.add_task('Nsq')
+analysis.add_task('0.5*(w*w + u*u * B*B/Nsq)', name = 'total e snap')
+analysis.add_task('0.5*mask*(w*w + u*u * B*B/Nsq)', layout = 'c', name = 'total e coeffs')
+analysis.add_task('-dx(u)', name = 'convergence') 
+
 # profiles
 analysis.add_task("integ(0.5 * B*B/Nsq, 'x')", name='pe profile')
 analysis.add_task("integ(0.5 * (u*u + w*w) , 'x')", name='ke profile')
 analysis.add_task("integ(0.5 * (u*u + w*w +  B*B/Nsq ),'x')", name='total e profile')
 analysis.add_task("integ(B,'x')", name = 'b profile')
+analysis.add_task("integ(B * mask,'x')", name = 'mask test')
 # 1d fields
 analysis.add_task('mask')
-analysis.add_task("integ(B * mask,'x')", name = 'mask test')
+analysis.add_task("integ(B * mask)", name = 'tropo b')
 analysis.add_task("integ(0.5 * mask *(u*u + w*w +  B*B/Nsq ))", name = 'tropo energy') # use mask to integrate over troposphere only
 analysis.add_task("integ(0.5 * (u*u + w*w +  B*B/Nsq ))", name='total e')
 
@@ -213,8 +252,8 @@ f.close()
 # save a plot or two 
 data = h5py.File(filepath, "r")
 #data = h5py.File("analysis_tasks/analysis_tasks_s1/analysis_tasks_s1_p0.h5", "r")
-pe = data['tasks']['pe profile'][:]
-ke = data['tasks']['ke profile'][:]
+#pe = data['tasks']['pe profile'][:]
+#ke = data['tasks']['ke profile'][:]
 te = data['tasks']['total e profile'][:] 
 buoy = data['tasks']['b profile'][:]
 te_1 = data['tasks']['total e'][:]
@@ -222,10 +261,11 @@ z = data['scales/z/1.0'][:]
 t = data['scales']['sim_time'][:]
 x = data['scales/x/1.0'][:]
 bb = data['tasks']['buoyancy'][:]
-uu = data['tasks']['horizontal velocity'][:]
+#uu = data['tasks']['horizontal velocity'][:]
 ww = data['tasks']['vertical velocity'][:]
-mt = data['tasks']['mask test'][:]
+#mt = data['tasks']['mask test'][:]
 tropenerg = data['tasks']['tropo energy'][:]
+te_3d = data['tasks']['total e snap'][:]
 data.close() 
 
 tau_approx = Lx*np.pi*m**2/(2.*Lz*eps*N1*k) 
@@ -237,6 +277,7 @@ plt.title('Energy in the troposphere' )
 plt.legend() 
 figpath = sim_name + "/energytest.pdf"
 plt.savefig(figpath) 
+plt.clf() 
 
 plt.pcolormesh(t,z, te[:,0,:].T)
 plt.colorbar()
@@ -245,17 +286,31 @@ figpath = sim_name + "/tetest.pdf"
 plt.savefig(figpath) 
 plt.clf() 
 
-plt.pcolormesh(t,z, pe[:,0,:].T)
+plt.pcolormesh(t,z, buoy[:,0,:].T)
 plt.colorbar()
-plt.title('potential energy' )
-figpath = sim_name + "/petest.pdf"
+plt.title('b' )
+figpath = sim_name + "/b_prof.pdf"
 plt.savefig(figpath) 
 plt.clf() 
 
-plt.pcolormesh(t,z, ke[:,0,:].T)
+#plt.pcolormesh(t,z, pe[:,0,:].T)
+#plt.colorbar()
+#plt.title('potential energy' )
+#figpath = sim_name + "/petest.pdf"
+#plt.savefig(figpath) 
+#plt.clf() 
+
+#plt.pcolormesh(t,z, ke[:,0,:].T)
+#plt.colorbar()
+#plt.title('kinetic energy' )
+#figpath = sim_name + "/ketest.pdf"
+#plt.savefig(figpath) 
+#plt.clf() 
+plt.pcolormesh(x,z, te_3d[10,:,:].T)
 plt.colorbar()
-plt.title('kinetic energy' )
-figpath = sim_name + "/ketest.pdf"
+plt.title('total e, 200 seconds' )
+plt.xlim(-Lx/2, Lx/2) 
+figpath = sim_name + "/tesnap.pdf"
 plt.savefig(figpath) 
 plt.clf() 
 

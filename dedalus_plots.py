@@ -20,3 +20,11 @@ def read_dims(data):
     all_dims['t'] = data['scales']['sim_time'][:]
     return all_dims
 
+
+def make_1D_plot(*args, **kwargs):
+    ''' make a line plot''' 
+    return
+
+def make_2D_plot(*args, **kwargs):
+    ''' make a pcolormesh plot ''' 
+    return 

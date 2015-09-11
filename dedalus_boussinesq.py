@@ -42,13 +42,13 @@ for h in root.handlers:
     
 logger = logging.getLogger(__name__)
 
-Lx, Lz = (4000000, 10000) # domain size in meters 
-nx, nz = (256, 144)  # number of points in each direction
+Lx, Lz = (2000000, 10000) # domain size in meters 
+nx, nz = (144, 144)  # number of points in each direction
 #Lx, Lz = (4000000, 10000) # domain size in meters 
 #nx, nz = (4*64, 144)  # number of points in each direction
 
 # parameters (some of these should be set via command line args) 
-stop_time = 50000. # simulation stop time  (seconds)
+stop_time = 5000. # simulation stop time  (seconds)
 pulse_len = args.pulse_len # seconds of forcing 
 N1 = 0.01 # buoyancy frequency in the troposphere (1/s) 
 eps = args.eps # ratio of N1/N2
@@ -114,14 +114,14 @@ if PULSE == True:
     def forcing(solver):
         # if using dealiasing, it's important to apply the forcing on the dealiased doman (xd,zd)
         if solver.sim_time < pulse_len:
-            f = 0.001*np.sin(np.pi*zd/Lz)*np.exp(-16.*(xd*xd)/((lambda_x)**2)) #pulse  with "effective wavelength" lambda_x 
+            f = 0.0001*np.sin(np.pi*zd/Lz)*np.exp(-16.*(xd*xd)/((lambda_x)**2)) #pulse  with "effective wavelength" lambda_x 
             strat = np.where(zd>Lz)
             f[:,strat] = 0.
-            # subtract the horizontal mean at each level so there's no k=0
-            fprof = np.mean(f, axis = 0 )
-            ftmp = np.repeat(fprof, xd.shape[0])
-            fmask = ftmp.reshape(zd.shape[1],xd.shape[0])
-            f = f - fmask.T 
+           # subtract the horizontal mean at each level so there's no k=0
+           # fprof = np.mean(f, axis = 0 )
+           # ftmp = np.repeat(fprof, xd.shape[0])
+           # fmask = ftmp.reshape(zd.shape[1],xd.shape[0])
+           # f = f - fmask.T 
         else:
             f = 0. 
         return f
@@ -249,49 +249,70 @@ lines = ln1 + ln2 + ln3 + ln4 + ln5 + ln6 + ln7 + ln8
 f.write(lines)  
 f.close() 
 
+# import plotting tools
+import dedalus_plots as dp 
+
+# read in required data
+
+# make plots 
+
 # save a plot or two 
 data = h5py.File(filepath, "r")
 #data = h5py.File("analysis_tasks/analysis_tasks_s1/analysis_tasks_s1_p0.h5", "r")
 #pe = data['tasks']['pe profile'][:]
 #ke = data['tasks']['ke profile'][:]
-te = data['tasks']['total e profile'][:] 
-buoy = data['tasks']['b profile'][:]
-te_1 = data['tasks']['total e'][:]
-z = data['scales/z/1.0'][:]
-t = data['scales']['sim_time'][:]
-x = data['scales/x/1.0'][:]
-bb = data['tasks']['buoyancy'][:]
+#te = data['tasks']['total e profile'][:] 
+#buoy = data['tasks']['b profile'][:]
+#te_1 = data['tasks']['total e'][:]
+#z = data['scales/z/1.0'][:]
+#t = data['scales']['sim_time'][:]
+#x = data['scales/x/1.0'][:]
+#bb = data['tasks']['buoyancy'][:]
 #uu = data['tasks']['horizontal velocity'][:]
-ww = data['tasks']['vertical velocity'][:]
+#ww = data['tasks']['vertical velocity'][:]
 #mt = data['tasks']['mask test'][:]
-tropenerg = data['tasks']['tropo energy'][:]
-te_3d = data['tasks']['total e snap'][:]
+#tropenerg = data['tasks']['tropo energy'][:]
+#te_3d = data['tasks']['total e snap'][:]
+dict_vars = {'te':'total e profile','b3d':'buoyancy'}
+vars = dp.read_vars(data, dict_vars) 
+dims = dp.read_dims(data) 
 data.close() 
 
+
+# for pulse, base decay timescale based on domain size
+if PULSE ==True: 
+    k = 4. 
 tau_approx = Lx*np.pi*m**2/(2.*Lz*eps*N1*k) 
 tau_exact = tau_approx + eps * (Lx/Lz) * (2. * (m*np.pi)**2 - 3.)/(12. * N1 * k * np.pi) 
-plt.plot(t, tropenerg[:,0,0]/max(tropenerg[:,0,0]),lw =2, label = 'simulation')
-plt.plot(t, np.exp(-(t-pulse_len)/tau_approx), lw = 2, ls = '--', label = '$\\tau = \\frac{m^2 H}{2N_1 k \\epsilon}$')
-plt.plot(t, np.exp(-(t-pulse_len)/tau_exact), lw = 2, label = 'theory')
-plt.title('Energy in the troposphere' )
-plt.legend() 
-figpath = sim_name + "/energytest.pdf"
-plt.savefig(figpath) 
-plt.clf() 
 
-plt.pcolormesh(t,z, te[:,0,:].T)
-plt.colorbar()
-plt.title('total energy' )
-figpath = sim_name + "/tetest.pdf"
-plt.savefig(figpath) 
-plt.clf() 
+plt.pcolormesh(dims['t'], dims['z'], vars['te'][:,0,:].T) 
+plt.show() 
 
-plt.pcolormesh(t,z, buoy[:,0,:].T)
-plt.colorbar()
-plt.title('b' )
-figpath = sim_name + "/b_prof.pdf"
-plt.savefig(figpath) 
-plt.clf() 
+
+
+
+#plt.plot(t, tropenerg[:,0,0]/max(tropenerg[:,0,0]),lw =2, label = 'simulation')
+#plt.plot(t, np.exp(-(t-pulse_len)/tau_approx), lw = 2, ls = '--', label = '$\\tau = \\frac{m^2 H}{2N_1 k \\epsilon}$')
+#plt.plot(t, np.exp(-(t-pulse_len)/tau_exact), lw = 2, label = 'theory')
+#plt.title('Energy in the troposphere' )
+#plt.legend() 
+#figpath = sim_name + "/energytest.pdf"
+#plt.savefig(figpath) 
+#plt.clf() 
+#
+#plt.pcolormesh(t,z, te[:,0,:].T)
+#plt.colorbar()
+#plt.title('total energy' )
+#figpath = sim_name + "/tetest.pdf"
+#plt.savefig(figpath) 
+#plt.clf() 
+#
+#plt.pcolormesh(t,z, buoy[:,0,:].T)
+#plt.colorbar()
+#plt.title('b' )
+#figpath = sim_name + "/b_prof.pdf"
+#plt.savefig(figpath) 
+#plt.clf() 
 
 #plt.pcolormesh(t,z, pe[:,0,:].T)
 #plt.colorbar()
@@ -306,34 +327,34 @@ plt.clf()
 #figpath = sim_name + "/ketest.pdf"
 #plt.savefig(figpath) 
 #plt.clf() 
-plt.pcolormesh(x,z, te_3d[10,:,:].T)
-plt.colorbar()
-plt.title('total e, 200 seconds' )
-plt.xlim(-Lx/2, Lx/2) 
-figpath = sim_name + "/tesnap.pdf"
-plt.savefig(figpath) 
-plt.clf() 
-
-plt.pcolormesh(x,z, ww[-1,:,:].T)
-plt.colorbar()
-plt.title('w, 20,000 seconds' )
-plt.xlim(-Lx/2, Lx/2) 
-figpath = sim_name + "/wtest.pdf"
-plt.savefig(figpath) 
-plt.clf() 
-
-plt.pcolormesh(x,z, bb[-1,:,:].T)
-plt.colorbar()
-plt.xlim(-Lx/2, Lx/2) 
-plt.title('b, 20,000 seconds' )
-figpath = sim_name + "/btest.pdf"
-plt.savefig(figpath) 
-plt.clf() 
-
-plt.pcolormesh(x,z, bb[10,:,:].T)
-plt.colorbar()
-plt.xlim(-Lx/2, Lx/2) 
-plt.title('b, 200 seconds' )
-figpath = sim_name + "/b_pulse.pdf"
-plt.savefig(figpath) 
-plt.clf() 
+#plt.pcolormesh(x,z, te_3d[10,:,:].T)
+#plt.colorbar()
+#plt.title('total e, 200 seconds' )
+#plt.xlim(-Lx/2, Lx/2) 
+#figpath = sim_name + "/tesnap.pdf"
+#plt.savefig(figpath) 
+#plt.clf() 
+#
+#plt.pcolormesh(x,z, ww[-1,:,:].T)
+#plt.colorbar()
+#plt.title('w, 20,000 seconds' )
+#plt.xlim(-Lx/2, Lx/2) 
+#figpath = sim_name + "/wtest.pdf"
+#plt.savefig(figpath) 
+#plt.clf() 
+#
+#plt.pcolormesh(x,z, bb[-1,:,:].T)
+#plt.colorbar()
+#plt.xlim(-Lx/2, Lx/2) 
+#plt.title('b, 50,000 seconds' )
+##figpath = sim_name + "/btest.pdf"
+#plt.savefig(figpath) 
+#plt.clf() 
+#
+#plt.pcolormesh(x,z, bb[10,:,:].T)
+#plt.colorbar()
+#plt.xlim(-Lx/2, Lx/2) 
+#plt.title('b, 200 seconds' )
+#figpath = sim_name + "/b_pulse.pdf"
+#plt.savefig(figpath) 
+#plt.clf() 

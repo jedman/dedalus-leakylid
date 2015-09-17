@@ -48,7 +48,7 @@ nx, nz = (144, 144)  # number of points in each direction
 #nx, nz = (4*64, 144)  # number of points in each direction
 
 # parameters (some of these should be set via command line args) 
-stop_time = 5000. # simulation stop time  (seconds)
+stop_time = 20000. # simulation stop time  (seconds)
 pulse_len = args.pulse_len # seconds of forcing 
 N1 = 0.01 # buoyancy frequency in the troposphere (1/s) 
 eps = args.eps # ratio of N1/N2
@@ -254,9 +254,7 @@ import dedalus_plots as dp
 
 # read in required data
 
-# make plots 
 
-# save a plot or two 
 data = h5py.File(filepath, "r")
 #data = h5py.File("analysis_tasks/analysis_tasks_s1/analysis_tasks_s1_p0.h5", "r")
 #pe = data['tasks']['pe profile'][:]
@@ -265,40 +263,39 @@ data = h5py.File(filepath, "r")
 #buoy = data['tasks']['b profile'][:]
 #te_1 = data['tasks']['total e'][:]
 #z = data['scales/z/1.0'][:]
-#t = data['scales']['sim_time'][:]
+t = data['scales']['sim_time'][:]
 #x = data['scales/x/1.0'][:]
 #bb = data['tasks']['buoyancy'][:]
 #uu = data['tasks']['horizontal velocity'][:]
 #ww = data['tasks']['vertical velocity'][:]
 #mt = data['tasks']['mask test'][:]
-#tropenerg = data['tasks']['tropo energy'][:]
+tropenerg = data['tasks']['tropo energy'][:]
 #te_3d = data['tasks']['total e snap'][:]
-dict_vars = {'te':'total e profile','b3d':'buoyancy'}
+dict_vars = {'te':'total e profile','b3d':'buoyancy', 'tropenergy':'tropo energy'}
 vars = dp.read_vars(data, dict_vars) 
 dims = dp.read_dims(data) 
 data.close() 
 
 
 # for pulse, base decay timescale based on domain size
-if PULSE ==True: 
+if PULSE == True: 
     k = 4. 
 tau_approx = Lx*np.pi*m**2/(2.*Lz*eps*N1*k) 
 tau_exact = tau_approx + eps * (Lx/Lz) * (2. * (m*np.pi)**2 - 3.)/(12. * N1 * k * np.pi) 
 
-plt.pcolormesh(dims['t'], dims['z'], vars['te'][:,0,:].T) 
-plt.show() 
+energ_normed = vars['tropenergy'][:,0,0]/np.max(vars['tropenergy'][:,0,0])
+energ_theory = np.exp(-(dims['t'] - pulse_len)/tau_exact)
+energ_approx  = np.exp(-(dims['t'] - pulse_len)/tau_approx)
+energ_normed_2D = vars['te'][:,0,:].T/np.max(vars['te'][:,0,:].T)
+
+dp.make_1D_plot(sim_name+'/energytest.pdf', dims['t'], simulation = energ_normed, 
+        theory = energ_theory, approx = energ_approx)
+
+dp.make_2D_plot(sim_name+'/tetest.pdf', (dims['t'], dims['z']/1000.), energ_normed_2D, 
+        title = 'Total Energy', xlabel = 'time (s)', ylabel = 'height (km)')
 
 
 
-
-#plt.plot(t, tropenerg[:,0,0]/max(tropenerg[:,0,0]),lw =2, label = 'simulation')
-#plt.plot(t, np.exp(-(t-pulse_len)/tau_approx), lw = 2, ls = '--', label = '$\\tau = \\frac{m^2 H}{2N_1 k \\epsilon}$')
-#plt.plot(t, np.exp(-(t-pulse_len)/tau_exact), lw = 2, label = 'theory')
-#plt.title('Energy in the troposphere' )
-#plt.legend() 
-#figpath = sim_name + "/energytest.pdf"
-#plt.savefig(figpath) 
-#plt.clf() 
 #
 #plt.pcolormesh(t,z, te[:,0,:].T)
 #plt.colorbar()

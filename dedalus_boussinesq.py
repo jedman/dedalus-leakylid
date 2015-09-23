@@ -43,7 +43,7 @@ for h in root.handlers:
 logger = logging.getLogger(__name__)
 
 Lx, Lz = (2000000, 10000) # domain size in meters 
-nx, nz = (144, 144)  # number of points in each direction
+nx, nz = (144, 256)  # number of points in each direction
 #Lx, Lz = (4000000, 10000) # domain size in meters 
 #nx, nz = (4*64, 144)  # number of points in each direction
 
@@ -59,7 +59,6 @@ model_top = 8. * Lz # lid height
 if eps < 0.4:
     model_top = 4. * Lz # increases resolution near the jump 
     
-
 sim_name = 'k'+ str(k) +'m' + str(m) 
 print('simulation name is', sim_name)  
 
@@ -114,7 +113,7 @@ if PULSE == True:
     def forcing(solver):
         # if using dealiasing, it's important to apply the forcing on the dealiased doman (xd,zd)
         if solver.sim_time < pulse_len:
-            f = 0.0001*np.sin(np.pi*zd/Lz)*np.exp(-16.*(xd*xd)/((lambda_x)**2)) #pulse  with "effective wavelength" lambda_x 
+            f = 0.0001*np.sin(m * np.pi*zd/Lz)*np.exp(-16.*(xd*xd)/((lambda_x)**2)) #pulse  with "effective wavelength" lambda_x 
             strat = np.where(zd>Lz)
             f[:,strat] = 0.
            # subtract the horizontal mean at each level so there's no k=0
@@ -282,14 +281,16 @@ if PULSE == True:
     k = 4. 
 tau_approx = Lx*np.pi*m**2/(2.*Lz*eps*N1*k) 
 tau_exact = tau_approx + eps * (Lx/Lz) * (2. * (m*np.pi)**2 - 3.)/(12. * N1 * k * np.pi) 
+tau_off = Lx*(6 + np.pi**2*m**2*(1.+3.*eps**2))/(6.*eps*N1*k*np.pi*Lz)
 
 energ_normed = vars['tropenergy'][:,0,0]/np.max(vars['tropenergy'][:,0,0])
 energ_theory = np.exp(-(dims['t'] - pulse_len)/tau_exact)
 energ_approx  = np.exp(-(dims['t'] - pulse_len)/tau_approx)
+energ_off  = np.exp(-(dims['t'] - pulse_len)/tau_off)
 energ_normed_2D = vars['te'][:,0,:].T/np.max(vars['te'][:,0,:].T)
 
 dp.make_1D_plot(sim_name+'/energytest.pdf', dims['t'], simulation = energ_normed, 
-        theory = energ_theory, approx = energ_approx)
+        theory = energ_theory, offmode = energ_off)
 
 dp.make_2D_plot(sim_name+'/tetest.pdf', (dims['t'], dims['z']/1000.), energ_normed_2D, 
         title = 'Total Energy', xlabel = 'time (s)', ylabel = 'height (km)')

@@ -44,5 +44,8 @@ def make_2D_plot(filename,dims,var, title = '', xlabel = '', ylabel = ''):
     plt.xlabel(xlabel) 
     plt.ylabel(ylabel) 
     plt.colorbar() 
-    plt.savefig(filename) 
+    plt.savefig(filename)
+    plt.clf() 
     return 
+
+

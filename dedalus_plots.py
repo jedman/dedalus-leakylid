@@ -26,7 +26,7 @@ def read_dims(data):
 
 def make_1D_plot(filename,dim, **kwargs):
     ''' make a line plot''' 
-
+    plt.clf() 
     styles = ['-','--','-.']
     ctr = 0
     for name, var in kwargs.items(): 

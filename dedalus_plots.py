@@ -30,7 +30,7 @@ def make_1D_plot(filename,dim, **kwargs):
     styles = ['-','--','-.']
     ctr = 0
     for name, var in kwargs.items(): 
-        plt.plot(dim, var, label = name, lw = 2, ls = styles[ctr])
+        plt.plot(dim, var, label = name, lw = 2, ls = styles[ctr], marker = 'x')
         ctr += 1 
     plt.legend() 
     plt.savefig(filename)

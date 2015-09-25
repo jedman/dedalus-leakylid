@@ -8,6 +8,17 @@ import dedalus_plots as dp
 import taufit 
 import matplotlib.pyplot as plt
 
+def forcing(solver):
+        # if using dealiasing, it's important to apply the forcing on the dealiased doman (xd,zd)
+    if solver.sim_time < pulse_len:
+        #f = 0.001*np.sin(np.pi*zd/Lz)*np.exp(-16.*(xd*xd)/((lambda_x)**2)) #pulse  with "effective wavelength" lambda_x
+        f = 0.001*np.sin(m * np.pi*zd/Lz)*np.cos(2. * k* np.pi* xd /Lx) # cosine wave
+        strat = np.where(zd>Lz)
+        f[:,strat] = 0.
+        f = 0. 
+    else:
+        f = 0.
+    return f
 parser = argparse.ArgumentParser(description='simulate a Boussinesq pulse')
 parser.add_argument('k', metavar = 'k', type = int, help='forcing wavenumber in the horizontal')
 parser.add_argument('m', metavar = 'm', type = int, help='forcing wavenumber in the vertical')
@@ -42,8 +53,8 @@ for h in root.handlers:
     
 logger = logging.getLogger(__name__)
 
-Lx, Lz = (2000000, 10000) # domain size in meters 
-nx, nz = (144, 144)  # number of points in each direction
+Lx, Lz = (3000000, 10000) # domain size in meters 
+nx, nz = (144, 120)  # number of points in each direction
 #Lx, Lz = (4000000, 10000) # domain size in meters 
 #nx, nz = (4*64, 144)  # number of points in each direction
 
@@ -64,7 +75,7 @@ x_basis = de.Fourier('x', nx, interval=(-Lx/2., Lx/2.))
 #
 eps = args.eps # ratio of N1/N2
 N2 = N1/eps  # buoyancy frequency in the stratosphere
-model_top = 16. * Lz # lid height
+model_top = 8. * Lz # lid height
 if eps < 0.4:
     model_top = 4. * Lz # increases resolution near the jump 
 z_basis = de.Chebyshev('z', nz, interval= (0, model_top))
@@ -95,10 +106,24 @@ mask['g'][:,strat] = 0
 mask.meta['x']['constant'] = True
 problem.parameters['mask'] = mask
 
+#define general forcing function
+forcing_func = de.operators.GeneralFunction(domain,'g',forcing, args=[])
+forcing_func.build_metadata()
+#forcing_func.meta = ncc.meta # just tricking it for now, this metadata is wrong
+# let's make a general parameter and use that metadata instead
+dummy = domain.new_field(name='dum')
+dummy['g'] = 1.
+forcing_func.meta = dummy.meta
+problem.parameters['forcing_func'] = forcing_func
+# need  to add 'meta' attribute for General Function class
+# otherwise system fails consistency check
+
+
+
 # system to solve (2D, linearized,  hydrostatic boussinesq) 
 problem.add_equation("dt(u) + 1/rho*dx(p) = 0")
-#problem.add_equation("dt(B) + Nsq*w  = forcing_func")
-problem.add_equation("dt(B) + Nsq*w  = 0")
+problem.add_equation("dt(B) + Nsq*w  = forcing_func")
+#problem.add_equation("dt(B) + Nsq*w  = 0")
 problem.add_equation("dx(u) + dz(w) = 0")
 if HYDROSTATIC == True:
 	problem.add_equation("B - 1/rho*dz(p) = 0")
@@ -115,9 +140,6 @@ problem.add_bc("integ(p,'z') = 0", condition="(nx == 0)") # pressure gauge condi
 ts = de.timesteppers.RK443 # arbitrary choice of time stepper
 #solver =  problem.build_solver(ts)
 
-# tell the forcing function what its arg is (clunky) 
-#forcing_func.args = [solver]
-#forcing_func.original_args = [solver]
 
 # initial conditions 
 #x, z = domain.grids(scales=1)
@@ -138,7 +160,7 @@ ts = de.timesteppers.RK443 # arbitrary choice of time stepper
 
 archive_list = [] 
 
-for k in range(2,10):
+for k in range(3,10):
     m = args.m # vertical mode number
     #k = args.k # horizontal mode number
     
@@ -149,25 +171,34 @@ for k in range(2,10):
     print('stratification ratio N1/N2 is' , N1/N2 )
     # initial conditions 
     solver =  problem.build_solver(ts)
+    # tell the forcing function what its arg is (clunky) 
+    forcing_func.args = [solver]
+    forcing_func.original_args = [solver]
+    
     x, z = domain.grids(scales=1)
     u = solver.state['u']
     w = solver.state['w']
     p = solver.state['p']
     B = solver.state['B'] # zero for everything
-    
-    solver.stop_sim_time = stop_time
+    u['g'] = 0. 
+    w['g'] = 0. 
+    p['g'] = 0. 
+    B['g'] = 0.
+    tau_approx = Lx*np.pi*m**2/(2.*Lz*eps*N1*k*2.)
+    tau_exact = tau_approx + eps * (Lx/Lz) * (2. * (m*np.pi)**2 - 3.)/(12. * N1 * k * np.pi * 2.)
+    solver.stop_sim_time =2.*tau_exact 
     solver.stop_wall_time = np.inf
     solver.stop_iteration = np.inf
     B['g'] = 0.01*np.sin(m * np.pi*z/Lz)*np.cos(k* 2* np.pi* x /Lx) 
     B['g'][:,strat] = 0.
     # CFL conditions
     initial_dt = 0.8*Lz/nz
-    cfl = flow_tools.CFL(solver,initial_dt,safety=0.8, max_change=5., min_change=0.5, max_dt=500) 
+    cfl = flow_tools.CFL(solver,initial_dt,safety=0.8, max_change=5., min_change=0.5, max_dt=300) 
     # too large of a timestep makes things rather diffusive
     cfl.add_velocities(('u','w'))
      
     # fields to record 
-    analysis = solver.evaluator.add_file_handler(sim_name, sim_dt=100, max_writes=300)
+    analysis = solver.evaluator.add_file_handler(sim_name, sim_dt=10, max_writes=500)
     analysis.add_task('B', name = 'buoyancy' )
     # 1d fields
     analysis.add_task('mask')
@@ -206,18 +237,18 @@ for k in range(2,10):
     energ_normed = vars['tropenergy'][:,0,0]/np.max(vars['tropenergy'][:,0,0])
     taufit.taufit(energ_normed,dims, m, k, eps, Lx, Lz, archive_list) 
 
-    tau_approx = Lx*np.pi*m**2/(2.*Lz*eps*N1*k)
-    tau_exact = tau_approx + eps * (Lx/Lz) * (2. * (m*np.pi)**2 - 3.)/(12. * N1 * k * np.pi)
+    #tau_approx = Lx*np.pi*m**2/(2.*Lz*eps*N1*k*2.)
+    #tau_exact = tau_approx + eps * (Lx/Lz) * (2. * (m*np.pi)**2 - 3.)/(12. * N1 * k * np.pi * 2.)
     #tau_off = Lx*(6 + np.pi**2*m**2*(1.+3.*eps**2))/(6.*eps*N1*k*np.p
 
     energ_normed = vars['tropenergy'][:,0,0]/np.max(vars['tropenergy'][:,0,0])
-    energ_theory = np.exp(-(dims['t'] )/tau_exact)
-    energ_approx  = np.exp(-(dims['t'])/tau_approx)
+    energ_theory = np.exp(-(dims['t'] - pulse_len )/tau_exact)
+    energ_approx  = np.exp(-(dims['t'] - pulse_len )/tau_approx)
     #energ_off  = np.exp(-(dims['t'] - pulse_len)/tau_off)
 
     dp.make_1D_plot(sim_name+'/energytest.pdf', dims['t'], simulation = energ_normed, 
         theory = energ_theory, approx = energ_approx)
-    dp.make_2D_plot(sim_name+'/binit.pdf', (dims['x']/1000., dims['z']/1000.),vars['b3d'][0,:,:].T , title='b initial', xlabel = 'x (km)', ylabel = 'z (km)')
+    dp.make_2D_plot(sim_name+'/binit.pdf', (dims['x']/1000., dims['z']/1000.),vars['b3d'][1,:,:].T , title='b initial', xlabel = 'x (km)', ylabel = 'z (km)')
     plt.clf()   
     plt.plot(dims['t'], np.log(energ_normed))
     plt.plot(dims['t'], -1./tau_exact*dims['t'], label = 'theory')
@@ -228,9 +259,10 @@ for k in range(2,10):
 taufit.plot_taus(archive_list) 
 
 import pickle 
-outfile = open( "eps1_m2.p", "wb" )
+outfile = open( "eps07.p", "wb" )
 pickle.dump(archive_list, outfile) 
     #dp.make_1D_plot(sim_name+'/energytest.pdf', dims['t'], simulation = energ_normed, 
     #    theory = energ_theory, offmode = energ_off)
 
-    #dp.make_2D_plot(sim_name+'/bend.pdf', (dims['x']/1000., dims['z']/1000.),vars['b3d'][-1,:,:].T , title='b final', xlabel = 'x (km)', ylabel = 'z (km)')
+#dp.make_2D_plot(sim_name+'/bend.pdf', (dims['x']/1000., dims['z']/1000.),vars['b3d'][-1,:,:].T , title='b final', xlabel = 'x (km)', ylabel = 'z (km)')i
+

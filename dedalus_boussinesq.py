@@ -48,7 +48,7 @@ nx, nz = (144, 256)  # number of points in each direction
 #nx, nz = (4*64, 144)  # number of points in each direction
 
 # parameters (some of these should be set via command line args) 
-stop_time = 10000. # simulation stop time  (seconds)
+stop_time = 20000. # simulation stop time  (seconds)
 pulse_len = args.pulse_len # seconds of forcing 
 N1 = 0.01 # buoyancy frequency in the troposphere (1/s) 
 eps = args.eps # ratio of N1/N2
@@ -291,13 +291,14 @@ energ_approx  = np.exp(-(dims['t'] - pulse_len)/tau_approx)
 energ_off  = np.exp(-(dims['t'] - pulse_len)/tau_off)
 energ_normed_2D = vars['te'][:,0,:].T/np.max(vars['te'][:,0,:].T)
 
-#dp.make_1D_plot(sim_name+'/energytest.pdf', dims['t'], simulation = energ_normed, 
-#        theory = energ_theory, offmode = energ_off)
+dp.make_1D_plot(sim_name+'/energytest.pdf', dims['t'], simulation = energ_normed, 
+        theory = energ_theory, offmode = energ_off)
 
 dp.make_2D_plot(sim_name+'/tetest.pdf', (dims['t'], dims['z']/1000.), energ_normed_2D, 
         title = 'Total Energy', xlabel = 'time (s)', ylabel = 'height (km)')
 u_wnd = vars['uu'][-1,:,:].T
-dp.make_2D_plot(sim_name + '/u_snap.pdf', (dims['x']/1000., dims['z']/1000.) , u_wnd, title='horizontal velocity at the end', xlabel = 'x (km)', ylabel = 'z (km)' )
+b_init = vars['b3d'][2,:,:].T
+dp.make_2D_plot(sim_name + '/b_snap.pdf', (dims['x']/1000., dims['z']/1000.) , b_init, title='buoyancy at the beginning', xlabel = 'x (km)', ylabel = 'z (km)' )
 
 
 #

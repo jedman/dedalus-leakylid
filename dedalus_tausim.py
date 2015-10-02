@@ -54,7 +54,7 @@ for h in root.handlers:
 logger = logging.getLogger(__name__)
 
 Lx, Lz = (3000000, 10000) # domain size in meters 
-nx, nz = (144, 120)  # number of points in each direction
+nx, nz = (144, 300)  # number of points in each direction
 #Lx, Lz = (4000000, 10000) # domain size in meters 
 #nx, nz = (4*64, 144)  # number of points in each direction
 
@@ -75,9 +75,9 @@ x_basis = de.Fourier('x', nx, interval=(-Lx/2., Lx/2.))
 #
 eps = args.eps # ratio of N1/N2
 N2 = N1/eps  # buoyancy frequency in the stratosphere
-model_top = 8. * Lz # lid height
-if eps < 0.4:
-    model_top = 4. * Lz # increases resolution near the jump 
+model_top = 16. * Lz # lid height
+if eps < 0.41:
+    model_top = 6. * Lz # increases resolution near the jump 
 z_basis = de.Chebyshev('z', nz, interval= (0, model_top))
 domain = de.Domain([x_basis, z_basis], grid_dtype=np.float64)
 x, z = domain.grids(scales=1)
@@ -186,7 +186,7 @@ for k in range(3,10):
     B['g'] = 0.
     tau_approx = Lx*np.pi*m**2/(2.*Lz*eps*N1*k*2.)
     tau_exact = tau_approx + eps * (Lx/Lz) * (2. * (m*np.pi)**2 - 3.)/(12. * N1 * k * np.pi * 2.)
-    solver.stop_sim_time =2.*tau_exact 
+    solver.stop_sim_time =0.5*tau_exact 
     solver.stop_wall_time = np.inf
     solver.stop_iteration = np.inf
     B['g'] = 0.01*np.sin(m * np.pi*z/Lz)*np.cos(k* 2* np.pi* x /Lx) 
@@ -198,7 +198,7 @@ for k in range(3,10):
     cfl.add_velocities(('u','w'))
      
     # fields to record 
-    analysis = solver.evaluator.add_file_handler(sim_name, sim_dt=10, max_writes=500)
+    analysis = solver.evaluator.add_file_handler(sim_name, sim_dt=10, max_writes=2000)
     analysis.add_task('B', name = 'buoyancy' )
     # 1d fields
     analysis.add_task('mask')
@@ -259,7 +259,7 @@ for k in range(3,10):
 taufit.plot_taus(archive_list) 
 
 import pickle 
-outfile = open( "eps07.p", "wb" )
+outfile = open( "eps02_m2.p", "wb" )
 pickle.dump(archive_list, outfile) 
     #dp.make_1D_plot(sim_name+'/energytest.pdf', dims['t'], simulation = energ_normed, 
     #    theory = energ_theory, offmode = energ_off)

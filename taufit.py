@@ -7,7 +7,8 @@ def taufit(energ_normed, dims, m, k, eps, Lx, Lz, archive):
     '''fit a tau to simulated energy (energ_normed) and add to archive list''' 
     N1 = 0.01 
     tau_approx = Lx*np.pi*m**2/(2.*Lz*eps*N1*k*2.)
-    tau_exact = tau_approx + eps * (Lx/Lz) * (2. * (m*np.pi)**2 - 3.)/(12. * N1 * k * np.pi*2.)
+    tau_exact = tau_approx*(1. + eps**2/3.) 
+    #tau_exact = tau_approx + eps * (Lx/Lz) * (2. * (m*np.pi)**2 - 3.)/(12. * N1 * k * np.pi*2.)
     [slope, intercept, r_value, p_value, std_err] = stats.linregress(dims['t'], np.log(energ_normed))
     tmp = dict(m = m, k = k, eps = eps, tau = -1./slope, intercept = intercept, r = r_value, std_err = std_err, tau_theory = tau_exact, tau_approx = tau_approx)
     archive.append(tmp) 
